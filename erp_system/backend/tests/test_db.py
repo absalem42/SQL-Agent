@@ -3,9 +3,12 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db import get_db
+from db import get_db, DB_PATH
 
 def test_existing_database():
+    print(f"🔍 Looking for database at: {DB_PATH}")
+    print(f"📁 Database exists: {os.path.exists(DB_PATH)}")
+    
     try:
         with get_db() as conn:
             # Check what tables exist
@@ -27,6 +30,7 @@ def test_existing_database():
         return True
     except Exception as e:
         print(f"❌ Database error: {e}")
+        print(f"💡 Try creating the database first or check if the path exists")
         return False
 
 if __name__ == "__main__":
