@@ -1,19 +1,38 @@
 version: '3.8'
 
 services:
+  # Backend API
   backend:
-    build: ./backend
+    build: .
     ports:
       - "8000:8000"
     environment:
       - DB_PATH=/app/databases/erp.db
+      - PYTHONPATH=/app/backend
     volumes:
-      # Mount the databases directory
       - ./databases:/app/databases
-    restart: unless-stopped
+      - ./logs:/app/logs
+    command: ["python", "backend/api.py"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+
+  # Frontend Streamlit
+  frontend:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONPATH=/app/backend
+      - API_URL=http://backend:8000
+    volumes:
+      - ./databases:/app/databases
+    command: ["streamlit", "run", "frontend/streamlit_app.py", "--server.address", "0.0.0.0"]
+    depends_on:
+      - backend
+
+networks:
+  default:
+    name: helios-erp

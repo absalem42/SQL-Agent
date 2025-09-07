@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helios Dynamics ERP Chat</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="chat-app">
+        <!-- Header -->
+        <header class="chat-header">
+            <div class="logo">
+                <i class="fas fa-building"></i>
+                <h1>Helios Dynamics ERP</h1>
+            </div>
+            <div class="status-indicator">
+                <span id="connectionStatus" class="status-dot offline"></span>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </header>
+
+        <!-- Agent Selection -->
+        <div class="agent-selection">
+            <div class="agent-selector">
+                <label for="agentSelect">
+                    <i class="fas fa-robot"></i> Choose Agent:
+                </label>
+                <select id="agentSelect">
+                    <option value="router">🤖 Router Agent (Auto-route to best agent)</option>
+                    <option value="sales">👥 Sales Agent (Customer & CRM)</option>
+                    <option value="analytics">📊 Analytics Agent (Coming Soon)</option>
+                    <option value="finance">💰 Finance Agent (Coming Soon)</option>
+                    <option value="inventory">📦 Inventory Agent (Coming Soon)</option>
+                </select>
+            </div>
+            <div class="agent-info">
+                <div id="agentDescription" class="agent-desc">
+                    <strong>Router Agent:</strong> Automatically routes your questions to the most appropriate specialist agent based on your query.
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="chat-container">
+            <!-- Chat Messages -->
+            <div id="chatMessages" class="chat-messages">
+                <div class="message assistant">
+                    <div class="message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <span class="sender-name">Helios ERP Assistant</span>
+                            <span class="message-time" id="welcomeTime"></span>
+                        </div>
+                        <div class="message-text">
+                            Welcome to Helios Dynamics ERP! I'm your AI assistant. Choose an agent above and ask me anything about your business - customers, sales, analytics, or any other ERP-related questions.
+                        </div>
+                        <div class="suggested-queries">
+                            <p><strong>Try asking:</strong></p>
+                            <button class="suggestion-btn" onclick="sendSuggestion('Show me recent customers')">
+                                "Show me recent customers"
+                            </button>
+                            <button class="suggestion-btn" onclick="sendSuggestion('Customer summary statistics')">
+                                "Customer summary statistics"
+                            </button>
+                            <button class="suggestion-btn" onclick="sendSuggestion('Show me leads')">
+                                "Show me leads"
+                            </button>
+                            <button class="suggestion-btn" onclick="sendSuggestion('What are our top 5 customers by revenue?')">
+                                "What are our top 5 customers by revenue?"
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Typing Indicator -->
+            <div id="typingIndicator" class="typing-indicator" style="display: none;">
+                <div class="message assistant">
+                    <div class="message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <div class="typing-animation">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Input -->
+            <div class="chat-input-container">
+                <div class="input-wrapper">
+                    <input type="text" id="chatInput" placeholder="Ask me anything about your business..." autocomplete="off">
+                    <button id="sendBtn" class="send-btn">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="chat-controls">
+                    <button id="clearBtn" class="control-btn" title="Clear Chat">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                    <button id="exportBtn" class="control-btn" title="Export Chat">
+                        <i class="fas fa-download"></i>
+                    </button>
+                    <div class="char-counter">
+                        <span id="charCount">0</span>/500
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-content">
+                <div class="loading-spinner">
+                    <i class="fas fa-cog fa-spin"></i>
+                </div>
+                <p>Processing your request...</p>
+            </div>
+        </div>
+
+        <!-- Error Toast -->
+        <div id="errorToast" class="error-toast">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span id="errorMessage"></span>
+            <button onclick="hideError()"><i class="fas fa-times"></i></button>
+        </div>
+    </div>
+
+    <script src="static/js/app.js"></script>
+</body>
+</html>
