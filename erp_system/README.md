@@ -117,6 +117,15 @@ erp.db (Production) / erp_sample.db (Demo)
 
 ### Installation
 
+#### Quick Setup with Makefile (Recommended)
+```bash
+git clone <repository-url>
+cd erp_system
+make setup  # Creates venv, installs dependencies, creates sample DB
+make up     # Starts the system with Docker
+```
+
+#### Manual Setup
 1. **Clone and Setup**
 ```bash
 git clone <repository-url>
@@ -147,7 +156,19 @@ python create_sample_db.py
 
 ### Running the System
 
-#### Option 1: Local Development
+#### Option 1: Using Makefile (Recommended)
+```bash
+# Start with Docker (recommended)
+make up
+
+# Or start locally without Docker
+make start
+
+# View available commands
+make help
+```
+
+#### Option 2: Manual Local Development
 ```bash
 # Start FastAPI backend
 cd backend
@@ -158,7 +179,7 @@ cd frontend
 streamlit run streamlit_app.py
 ```
 
-#### Option 2: Docker Deployment
+#### Option 3: Manual Docker Deployment
 ```bash
 # Build and run with Docker Compose
 docker-compose up --build
@@ -220,7 +241,49 @@ erp_system/
 └── README.md                  # This documentation
 ```
 
+## 🛠️ Makefile Commands
+
+The project includes a comprehensive Makefile for easy management:
+
+```bash
+# Setup and Installation
+make setup       # Install dependencies and create sample database
+make build       # Build Docker containers
+
+# Running the System
+make up          # Start containers (recommended)
+make start       # Start locally without Docker
+make down        # Stop containers
+make stop        # Stop local processes
+make restart     # Restart containers
+
+# Development and Testing
+make test        # Run system tests
+make demo        # Run interactive demo
+make health      # Check system health
+make logs        # Show container logs
+make shell       # Open shell in backend container
+
+# Maintenance
+make clean       # Clean containers and cache files (__pycache__)
+make deep-clean  # Clean everything including virtual environment
+make status      # Show container status
+make help        # Show all available commands
+```
+
 ## 🧪 Testing
+
+### Using Makefile (Recommended)
+```bash
+# Run system tests
+make test
+
+# Run interactive demo
+make demo
+
+# Check system health
+make health
+```
 
 ### Unit Tests
 ```bash
