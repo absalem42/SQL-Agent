@@ -1,9 +1,36 @@
+"""
+Sales Tools - Comprehensive CRM and Lead Management System
+
+This module provides specialized tools for sales operations, customer relationship
+management, and lead qualification within the ERP system.
+
+Key Features:
+- SQL-based customer and lead data retrieval
+- AI-powered lead scoring and qualification
+- RAG (Retrieval-Augmented Generation) for intelligent search
+- Memory management for conversation context
+- Business intelligence and reporting capabilities
+
+Tools Provided:
+1. sales_sql_read: Safe SQL queries for customer/lead data
+2. sales_sql_write: Customer and lead record management
+3. sales_rag_search: Semantic search across customer database
+4. score_leads: AI-powered lead scoring and prioritization
+
+Architecture:
+- MCP-compliant tool registration and management
+- Secure SQL execution with injection prevention
+- Conversation memory for context awareness
+- Entity-specific memory for customer insights
+"""
+
 import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import json
 import sqlite3
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -12,13 +39,25 @@ from db import get_db
 from mcp.mcp_adapter import mcp_registry
 
 class SalesTools:
-    """Sales & CRM Agent with SQL, RAG, and lead scoring capabilities"""
+    """
+    Sales & CRM Agent with comprehensive business tools.
+    
+    This class implements a complete suite of sales and customer relationship
+    management tools designed for ERP systems. It provides secure database
+    access, intelligent lead scoring, and advanced search capabilities.
+    
+    Attributes:
+        conversation_buffer (List): Stores recent conversation context
+        entity_memory (Dict): Customer-specific memory and insights
+        max_buffer_size (int): Maximum size for conversation buffer
+    """
     
     def __init__(self):
-        self.conversation_buffer = []  # Simple conversation memory
-        self.entity_memory = {}  # Customer-specific memory
-        self.max_buffer_size = 5
-        self._register_tools()
+        """Initialize the SalesTools with memory management and tool registration."""
+        self.conversation_buffer = []  # Simple conversation memory for context
+        self.entity_memory = {}  # Customer-specific memory and insights
+        self.max_buffer_size = 5  # Limit buffer size for memory efficiency
+        self._register_tools()  # Register all tools with MCP
         
     def _register_tools(self):
         """Register all sales tools with MCP"""

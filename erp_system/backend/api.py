@@ -14,12 +14,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Import agents with error handling
 try:
-    from agents.simple_router_agent import executor as router_executor
+    # Import router agent directly for better error handling
+    from agents.simple_router_agent import create_simple_router_agent
+    router_executor = create_simple_router_agent()
     ROUTER_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: Router agent not available: {e}")
-    router_executor = None
-    ROUTER_AVAILABLE = False
+    print("✅ Router agent loaded successfully")
+except Exception as e:
+    print(f"Warning: Router agent failed to initialize: {e}")
+    # Try to import router anyway for error handling
+    try:
+        from agents.simple_router_agent import create_simple_router_agent
+        router_executor = None  # We'll create it on demand
+        ROUTER_AVAILABLE = True
+        print("🔄 Router agent available but not initialized (will use on-demand creation)")
+    except ImportError:
+        print(f"Router agent completely unavailable: {e}")
+        router_executor = None
+        ROUTER_AVAILABLE = False
 
 try:
     from agents.sales_agent_simple import SimpleSalesAgent
@@ -149,9 +160,27 @@ async def chat_with_agent(request: ChatRequest):
             
         elif ROUTER_AVAILABLE:
             print("Using Router Agent")
-            result = router_executor.invoke({"input": request.message})
-            response = result['output']
-            agent_used = "router"
+            # Create router on demand if not already created
+            if router_executor is None:
+                try:
+                    from agents.simple_router_agent import create_simple_router_agent
+                    router_executor_temp = create_simple_router_agent()
+                    result = router_executor_temp.invoke({"input": request.message})
+                except Exception as e:
+                    print(f"Router creation failed, falling back to sales: {e}")
+                    if SALES_AGENT_AVAILABLE:
+                        result = sales_agent.invoke({"input": request.message})
+                        response = result['output']
+                        agent_used = "sales"
+                    else:
+                        response = f"Router agent error: {str(e)}"
+                        agent_used = "error"
+            else:
+                result = router_executor.invoke({"input": request.message})
+            
+            if 'result' in locals() and result:
+                response = result['output']
+                agent_used = "router"
             
         elif SALES_AGENT_AVAILABLE:
             print("Fallback to Sales Agent")

@@ -1,3 +1,23 @@
+"""
+Simple Router Agent - Intelligent Query Routing for ERP System
+
+This module implements the main router agent that intelligently routes user queries
+to appropriate specialized agents based on the request content and context.
+
+Key Features:
+- Natural language understanding for query classification
+- Intelligent routing to specialized agents (Sales, Finance, Inventory)
+- System status monitoring and health checks
+- Error handling and fallback responses
+- Memory management for conversation context
+
+Architecture:
+- Uses LangChain ReAct pattern for reasoning and action selection
+- Integrates with MCP (Model Context Protocol) for tool management
+- Supports multiple LLM providers (Google Gemini, Ollama)
+- Implements conversation memory for context awareness
+"""
+
 import os
 import sys
 from pathlib import Path
@@ -15,18 +35,39 @@ from mcp.tool_registry import ToolRegistry
 from agents.sales_agent_simple import SimpleSalesAgent
 
 # Initialize the tool registry and sales agent
+# The tool registry manages all available tools across agents
 tool_registry = ToolRegistry()
 sales_agent = SimpleSalesAgent()
 
 @tool
 def execute_with_sales_agent(user_request: str) -> str:
-    """Route requests to the Sales Agent for customer, lead, and order management"""
+    """
+    Route requests to the Sales Agent for customer, lead, and order management.
+    
+    This tool handles all customer-related queries including:
+    - Customer information retrieval and management
+    - Lead tracking and scoring
+    - Order history and analysis
+    - Revenue reporting and analytics
+    
+    Args:
+        user_request (str): The user's natural language request
+        
+    Returns:
+        str: Formatted response from the Sales Agent with business data
+        
+    Example queries:
+        - "show recent customers"
+        - "display leads with high scores"
+        - "customer summary report"
+    """
     print(f"🛍️ Routing to Sales Agent: {user_request}")
     try:
+        # Invoke the sales agent with the user request
         result = sales_agent.invoke({"input": user_request})
         response = result['output']
-        print(f"Sales Agent Response: {response[:200]}...")  # Log first 200 chars
-        return response  # Return the actual response, not a wrapper message
+        print(f"Sales Agent Response: {response[:200]}...")  # Log first 200 chars for debugging
+        return response  # Return the actual response content
     except Exception as e:
         return f"Sales Agent Error: {str(e)}"
 
@@ -69,25 +110,48 @@ def create_simple_router_agent():
     # Get tools from registry
     tools = tool_registry.get_tools()
     
-    # Enhanced prompt that focuses on returning the actual content
+    # ReAct prompt template with required variables
     prompt_template = """You are a Router Agent for Helios Dynamics ERP system.
 
 Your job is to route user requests to the appropriate agent and return their EXACT response.
 
-Available tools:
+TOOLS:
+------
+You have access to the following tools:
+
 {tools}
 
-Tool descriptions:
-{tool_names_and_descriptions}
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
 
 IMPORTANT INSTRUCTIONS:
 1. If the user asks about customers, leads, orders, sales, or CRM - use execute_with_sales_agent
 2. If the user asks about system info, health, or status - use get_system_info  
-3. When you get a response from a tool, return EXACTLY what the tool returned
-4. Do NOT add "Sales Agent Response:" or any wrapper text
+3. When you get a response from a tool, return EXACTLY what the tool returned in your Final Answer
+4. Do NOT add "Sales Agent Response:" or any wrapper text in your Final Answer
 5. Do NOT say "Here is the information you requested" - just return the actual data
-"""
-    prompt = PromptTemplate.from_template(prompt_template)
+
+Begin!
+
+Question: {input}
+Thought: {agent_scratchpad}"""
+    
+    prompt = PromptTemplate(
+        template=prompt_template,
+        input_variables=["input", "agent_scratchpad"],
+        partial_variables={
+            "tools": "\n".join([f"{tool.name}: {tool.description}" for tool in tools]),
+            "tool_names": ", ".join([tool.name for tool in tools])
+        }
+    )
     
     agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
     executor = AgentExecutor(

@@ -9,6 +9,12 @@ try:
 except ImportError:
     OLLAMA_AVAILABLE = False
 
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    GOOGLE_GENAI_AVAILABLE = True
+except ImportError:
+    GOOGLE_GENAI_AVAILABLE = False
+
 class MockLLM(LLM):
     """Mock LLM for testing when Ollama is not available"""
     
@@ -134,19 +140,50 @@ Final Answer: I can help you with various tasks. Please specify what you need as
 
 def get_llm():
     """Get the appropriate LLM instance"""
+    import os
+    
+    # Try Google Gemini first
+    if GOOGLE_GENAI_AVAILABLE:
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        if google_api_key:
+            try:
+                print("🤖 Using Google Gemini")
+                return ChatGoogleGenerativeAI(
+                    model="gemini-1.5-flash",
+                    google_api_key=google_api_key,
+                    temperature=0.1,
+                    convert_system_message_to_human=True
+                )
+            except Exception as e:
+                print(f"⚠️ Google Gemini configuration error: {e}")
+    
+    # Fallback to Ollama
     if OLLAMA_AVAILABLE:
         try:
-            # Try to connect to Ollama
+            # Try to connect to Ollama - try both localhost and host.docker.internal
             import requests
-            response = requests.get("http://localhost:11434/api/tags", timeout=2)
-            if response.status_code == 200:
-                return OllamaLLM(
-                    model="llama3.2:latest",
-                    base_url="http://localhost:11434",
-                    temperature=0.1
-                )
+            ollama_urls = [
+                "http://localhost:11434",
+                "http://host.docker.internal:11434",
+                "http://172.17.0.1:11434",  # Docker bridge network
+            ]
+            
+            for base_url in ollama_urls:
+                try:
+                    response = requests.get(f"{base_url}/api/tags", timeout=2)
+                    if response.status_code == 200:
+                        print(f"✅ Connected to Ollama at {base_url}")
+                        return OllamaLLM(
+                            model="llama3.1:8b",  # Use the model we actually have
+                            base_url=base_url,
+                            temperature=0.1
+                        )
+                except requests.RequestException:
+                    continue
+                    
+            print("⚠️ Ollama not reachable from any URL")
         except Exception as e:
-            print(f"Warning: Ollama not available: {e}")
+            print(f"Warning: Ollama configuration error: {e}")
     
     print("Using MockLLM for testing")
     return MockLLM()
