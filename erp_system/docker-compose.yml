@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Backend API
   backend:
@@ -9,13 +7,15 @@ services:
     environment:
       - DB_PATH=/app/databases/erp.db
       - PYTHONPATH=/app/backend
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    env_file:
+      - .env
     volumes:
       - ./databases:/app/databases
       - ./logs:/app/logs
     command: ["python", "backend/api.py"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    network_mode: bridge
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -30,12 +30,11 @@ services:
     environment:
       - PYTHONPATH=/app/backend
       - API_URL=http://backend:8000
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    env_file:
+      - .env
     volumes:
       - ./databases:/app/databases
     command: ["streamlit", "run", "frontend/streamlit_app.py", "--server.address", "0.0.0.0"]
     depends_on:
       - backend
-
-networks:
-  default:
-    name: helios-erp

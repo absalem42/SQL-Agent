@@ -33,11 +33,13 @@ from langchain.memory import ConversationBufferMemory
 from config.llm import get_llm
 from mcp.tool_registry import ToolRegistry
 from agents.sales_agent_simple import SimpleSalesAgent
+from agents.AnalyticsAgent import create_analytics_agent
 
-# Initialize the tool registry and sales agent
+# Initialize the tool registry and agents
 # The tool registry manages all available tools across agents
 tool_registry = ToolRegistry()
 sales_agent = SimpleSalesAgent()
+analytics_agent = create_analytics_agent()
 
 @tool
 def execute_with_sales_agent(user_request: str) -> str:
@@ -99,8 +101,44 @@ def get_system_info() -> str:
     except Exception as e:
         return f"System Info Error: {str(e)}"
 
+@tool
+def execute_with_analytics_agent(user_request: str) -> str:
+    """
+    Route analytics, reporting, and data analysis queries to the Analytics Agent
+    
+    Use this for:
+    - SQL queries and data analysis  
+    - Revenue/financial reporting
+    - Business metrics and KPIs
+    - Data visualization requests
+    - Executive dashboard queries
+    - Natural language to SQL conversion
+    
+    Args:
+        user_request (str): The user's analytics or reporting request
+        
+    Returns:
+        str: Formatted response from the Analytics Agent with data insights
+        
+    Example queries:
+        - "What's our total revenue this month?"
+        - "Show me top performing customers"
+        - "Analyze sales trends"
+        - "Create a chart of monthly orders"
+    """
+    print(f"📊 Routing to Analytics Agent: {user_request}")
+    try:
+        # Invoke the analytics agent with the user request
+        result = analytics_agent.invoke({"input": user_request})
+        response = result['output']
+        print(f"Analytics Agent Response: {response[:200]}...")  # Log first 200 chars for debugging
+        return response
+    except Exception as e:
+        return f"Analytics Agent Error: {str(e)}"
+
 # Register tools with the registry
 tool_registry.register_tool(execute_with_sales_agent)
+tool_registry.register_tool(execute_with_analytics_agent)
 tool_registry.register_tool(get_system_info)
 
 # Create the router agent
@@ -134,10 +172,11 @@ Final Answer: the final answer to the original input question
 
 IMPORTANT INSTRUCTIONS:
 1. If the user asks about customers, leads, orders, sales, or CRM - use execute_with_sales_agent
-2. If the user asks about system info, health, or status - use get_system_info  
-3. When you get a response from a tool, return EXACTLY what the tool returned in your Final Answer
-4. Do NOT add "Sales Agent Response:" or any wrapper text in your Final Answer
-5. Do NOT say "Here is the information you requested" - just return the actual data
+2. If the user asks about analytics, reports, revenue, metrics, SQL queries, or data analysis - use execute_with_analytics_agent
+3. If the user asks about system info, health, or status - use get_system_info  
+4. When you get a response from a tool, return EXACTLY what the tool returned in your Final Answer
+5. Do NOT add "Agent Response:" or any wrapper text in your Final Answer
+6. Do NOT say "Here is the information you requested" - just return the actual data
 
 Begin!
 
