@@ -29,11 +29,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.prompts import PromptTemplate
 from langchain.tools import tool
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferWindowMemory
 from config.llm import get_llm
 from mcp.tool_registry import ToolRegistry
 from agents.sales_agent_simple import SimpleSalesAgent
 from agents.AnalyticsAgent import create_analytics_agent
+from memory.base_memory import RouterGlobalState
+
+# Initialize memory and global state
+global_state = RouterGlobalState()
 
 # Initialize the tool registry and agents
 # The tool registry manages all available tools across agents
@@ -148,10 +152,20 @@ def create_simple_router_agent():
     # Get tools from registry
     tools = tool_registry.get_tools()
     
+    # Initialize memory with k=5 as per specifications
+    memory = ConversationBufferWindowMemory(
+        k=5,
+        memory_key="chat_history",
+        return_messages=True,
+        output_key="output"
+    )
+    
     # ReAct prompt template with required variables
     prompt_template = """You are a Router Agent for Helios Dynamics ERP system.
 
 Your job is to route user requests to the appropriate agent and return their EXACT response.
+
+Chat History: {chat_history}
 
 TOOLS:
 ------
@@ -185,7 +199,7 @@ Thought: {agent_scratchpad}"""
     
     prompt = PromptTemplate(
         template=prompt_template,
-        input_variables=["input", "agent_scratchpad"],
+        input_variables=["input", "agent_scratchpad", "chat_history"],
         partial_variables={
             "tools": "\n".join([f"{tool.name}: {tool.description}" for tool in tools]),
             "tool_names": ", ".join([tool.name for tool in tools])
@@ -196,12 +210,65 @@ Thought: {agent_scratchpad}"""
     executor = AgentExecutor(
         agent=agent,
         tools=tools,
+        memory=memory,
         verbose=True,
         handle_parsing_errors=True,
         max_iterations=3
     )
     
     return executor
+
+class RouterAgent:
+    """Router Agent with full memory management"""
+    
+    def __init__(self, global_state: RouterGlobalState = None, user_id: str = "default_user", session_id: str = None):
+        self.user_id = user_id
+        self.session_id = session_id
+        self.global_state = global_state or RouterGlobalState()
+        self.conversation_id = self.global_state.get_or_create_conversation(
+            user_id=user_id, 
+            session_id=session_id,
+            agent_type="router"
+        )
+        self.executor = create_simple_router_agent()
+    
+    def chat(self, user_input: str) -> str:
+        """Chat with memory tracking"""
+        # Log user message
+        self.global_state.add_message(self.conversation_id, "human", user_input)
+        
+        try:
+            # Get response from agent
+            result = self.executor.invoke({"input": user_input})
+            response = result['output']
+            
+            # Log agent response
+            self.global_state.add_message(self.conversation_id, "ai", response)
+            
+            # Log tool calls if any
+            if 'intermediate_steps' in result:
+                for step in result['intermediate_steps']:
+                    if len(step) >= 2:
+                        tool_name = step[0].tool if hasattr(step[0], 'tool') else 'unknown'
+                        self.global_state.log_tool_call("router", tool_name, step[0], step[1])
+            
+            return response
+            
+        except Exception as e:
+            error_msg = f"Router Error: {str(e)}"
+            self.global_state.add_message(self.conversation_id, "ai", error_msg)
+            return error_msg
+    
+    def get_conversation_history(self, limit: int = 10) -> List[Dict]:
+        """Get conversation history with memory"""
+        return self.global_state.get_conversation_history(self.conversation_id, limit)
+    
+    async def get_system_info(self, _: str) -> str:
+        """Get system info - for compatibility with old interface"""
+        return get_system_info("")
+
+# Export both the executor and the RouterAgent class
+executor = create_simple_router_agent()
 
 def run_simple_router_agent():
     """Interactive simple router agent"""

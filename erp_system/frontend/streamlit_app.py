@@ -2,24 +2,27 @@ import streamlit as st
 import sys
 from pathlib import Path
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+# Add backend to path - Docker container path
+sys.path.insert(0, "/app/backend")
 
 try:
-    from agents.simple_router_agent import create_simple_router_agent
+    from agents.simple_router_agent import RouterAgent
     from agents.sales_agent_simple import SimpleSalesAgent
-    from agents.AnalyticsAgent import create_analytics_agent
+    from agents.AnalyticsAgent import create_analytics_agent_with_chat
+    from memory.base_memory import RouterGlobalState, SalesEntityMemory, AnalyticsReportMemory
     AGENTS_AVAILABLE = True
 except Exception as e:
     AGENTS_AVAILABLE = False
+    st.error(f"Import error: {e}")
 
 st.set_page_config(
-    page_title="ERP System - 3 Agent Demo",
-    page_icon="🏢",
-    layout="wide"
+    page_title="ERP Chat Assistant",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Simple CSS
+# Enhanced CSS with better color contrast for messages
 st.markdown("""
 <style>
     .main-header {
@@ -27,29 +30,53 @@ st.markdown("""
         text-align: center;
         margin-bottom: 2rem;
     }
-    .agent-section {
-        border: 2px solid #e0e0e0;
+    .chat-container {
+        max-height: 400px;
+        overflow-y: auto;
         padding: 1rem;
+        border: 1px solid #ddd;
         border-radius: 8px;
-        margin: 1rem 0;
+        margin-bottom: 1rem;
+    }
+    .user-message {
+        background-color: #e3f2fd;
+        color: #1565c0;
+        padding: 0.8rem;
+        border-radius: 10px;
+        margin: 0.8rem 0;
+        margin-left: 2rem;
+        border-left: 4px solid #2196f3;
+        font-weight: 500;
+    }
+    .assistant-message {
+        background-color: #fff3e0; 
+        color: #2e7d32;
+        padding: 0.8rem;
+        border-radius: 10px;
+        margin: 0.8rem 0;
+        margin-right: 2rem;
+        border-left: 4px solid #4caf50;
+        font-weight: 500;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Main Header
-st.markdown('<h1 class="main-header">🏢 ERP System - 3 Agent Architecture</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🚀 ERP Chat Assistant - Live Development!</h1>', unsafe_allow_html=True)
 
 if not AGENTS_AVAILABLE:
     st.error("Agents not available. Please check the backend configuration.")
     st.stop()
 
-# Initialize agents
+# Initialize agents with caching
 @st.cache_resource
 def load_agents():
     try:
-        router = create_simple_router_agent()
+        router_state = RouterGlobalState()
+        router = RouterAgent(router_state)
         sales = SimpleSalesAgent()
-        analytics = create_analytics_agent()
+        analytics = create_analytics_agent_with_chat()
         return router, sales, analytics
     except Exception as e:
         st.error(f"Failed to load agents: {e}")
@@ -61,78 +88,93 @@ if not all([router_agent, sales_agent, analytics_agent]):
     st.error("Failed to initialize agents")
     st.stop()
 
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "selected_agent" not in st.session_state:
+    st.session_state.selected_agent = "Router Agent"
+
 # Agent Selection
 st.sidebar.title("🎯 Select Agent")
-agent_choice = st.sidebar.radio(
-    "Choose an agent to interact with:",
-    ["🤖 Router Agent (Smart Routing)", "🛍️ Sales & CRM Agent", "📊 Analytics Agent"]
+agent_choice = st.sidebar.selectbox(
+    "Choose an agent:",
+    ["Router Agent", "Sales Agent", "Analytics Agent"],
+    key="agent_selector"
 )
 
-# Main Chat Interface
+# Update selected agent if changed
+if agent_choice != st.session_state.selected_agent:
+    st.session_state.selected_agent = agent_choice
+    st.session_state.messages = []
+
+# Sidebar controls
+if st.sidebar.button("Clear Chat"):
+    st.session_state.messages = []
+    st.rerun()
+
+# Agent descriptions
+agent_info = {
+    "Router Agent": "🤖 Smart routing and system management",
+    "Sales Agent": "🛍️ Customer and sales operations", 
+    "Analytics Agent": "📊 Data analysis and reporting"
+}
+
+st.subheader(f"{agent_info[agent_choice]}")
+
+# Display chat messages
+if st.session_state.messages:
+    for message in st.session_state.messages:
+        if message["role"] == "user":
+            st.markdown(f'<div class="user-message">👤 You: {message["content"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="assistant-message">🤖 {agent_choice}: {message["content"]}</div>', unsafe_allow_html=True)
+
+# Chat input
+user_input = st.text_input("Ask a question:", key="chat_input", placeholder=f"Ask {agent_choice} something...")
+
+if st.button("Send") and user_input:
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
+    # Get response from selected agent
+    with st.spinner(f"Getting response from {agent_choice}..."):
+        try:
+            if agent_choice == "Router Agent":
+                response = router_agent.chat(user_input)
+            elif agent_choice == "Sales Agent":
+                response = sales_agent.chat(user_input)
+            elif agent_choice == "Analytics Agent":
+                response = analytics_agent.chat(user_input)
+            else:
+                response = "Unknown agent selected."
+        except Exception as e:
+            response = f"Error: {str(e)}"
+    
+    # Add assistant response
+    st.session_state.messages.append({"role": "assistant", "content": response})
+    st.rerun()
+
+# Status
+col1, col2, col3 = st.columns(3)
+with col1:
+    if router_agent:
+        st.success("✅ Router Ready")
+    else:
+        st.error("❌ Router Failed")
+
+with col2:
+    if sales_agent:
+        st.success("✅ Sales Ready")
+    else:
+        st.error("❌ Sales Failed")
+
+with col3:
+    if analytics_agent:
+        st.success("✅ Analytics Ready")
+    else:
+        st.error("❌ Analytics Failed")
+
+# Footer info
 st.markdown("---")
-
-if agent_choice == "🤖 Router Agent (Smart Routing)":
-    st.markdown('<div class="agent-section">', unsafe_allow_html=True)
-    st.header("🤖 Router Agent")
-    st.write("**Intelligent query routing** - Automatically routes your queries to the appropriate specialized agent")
-    
-    query = st.text_input("Ask anything (will be routed automatically):", placeholder="e.g., 'show customers', 'what's our revenue?', 'system status'")
-    
-    if st.button("Send to Router", type="primary"):
-        if query:
-            with st.spinner("Router processing..."):
-                try:
-                    result = router_agent.invoke({"input": query})
-                    st.success("✅ Router Response:")
-                    st.write(result['output'])
-                except Exception as e:
-                    st.error(f"Router Error: {e}")
-        else:
-            st.warning("Please enter a query")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-elif agent_choice == "🛍️ Sales & CRM Agent":
-    st.markdown('<div class="agent-section">', unsafe_allow_html=True)
-    st.header("🛍️ Sales & CRM Agent")
-    st.write("**Direct sales operations** - Customer management, orders, leads")
-    
-    query = st.text_input("Sales/CRM Query:", placeholder="e.g., 'show recent customers', 'list leads', 'customer summary'")
-    
-    if st.button("Send to Sales Agent", type="primary"):
-        if query:
-            with st.spinner("Sales agent processing..."):
-                try:
-                    # Use router to execute with sales agent
-                    result = router_agent.invoke({"input": query})
-                    st.success("✅ Sales Agent Response:")
-                    st.write(result['output'])
-                except Exception as e:
-                    st.error(f"Sales Agent Error: {e}")
-        else:
-            st.warning("Please enter a query")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-elif agent_choice == "📊 Analytics Agent":
-    st.markdown('<div class="agent-section">', unsafe_allow_html=True)
-    st.header("📊 Analytics Agent")
-    st.write("**Data analysis and reporting** - SQL queries, revenue analysis, business intelligence")
-    
-    query = st.text_input("Analytics Query:", placeholder="e.g., 'total revenue', 'customer analytics', 'how many orders'")
-    
-    if st.button("Send to Analytics Agent", type="primary"):
-        if query:
-            with st.spinner("Analytics processing..."):
-                try:
-                    result = analytics_agent.invoke({"input": query})
-                    st.success("✅ Analytics Response:")
-                    st.write(result['output'])
-                except Exception as e:
-                    st.error(f"Analytics Agent Error: {e}")
-        else:
-            st.warning("Please enter a query")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Footer
-st.markdown("---")
-st.markdown("**System Status:** ✅ All 3 agents loaded and ready")
-st.markdown("**Architecture:** Router Agent + Sales Agent + Analytics Agent")
+st.info(f"💬 Chat with {agent_choice} • {len(st.session_state.messages)} messages")

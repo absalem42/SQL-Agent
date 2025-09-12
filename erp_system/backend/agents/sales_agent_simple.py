@@ -10,12 +10,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Fix: Import from db module instead of config.database
 from db import get_db
 from tools.sales_tools import SalesTools
+from memory.base_memory import SalesEntityMemory, RouterGlobalState
+from langchain.memory import ConversationBufferMemory
 
 class SimpleSalesAgent:
     """Working sales agent that uses the actual database schema"""
     
     def __init__(self):
         self.sales_tools = SalesTools()
+        self.entity_memory = SalesEntityMemory()
+        self.conversation_memory = ConversationBufferMemory(return_messages=True)
+        self.global_state = RouterGlobalState()
     
     def _get_customers(self) -> str:
         """Get customers list with their order information"""
@@ -204,6 +209,14 @@ class SimpleSalesAgent:
             
         except Exception as e:
             return {'output': f"❌ Error processing request: {str(e)}"}
+    
+    def chat(self, message: str) -> str:
+        """Chat interface that mimics other agents"""
+        try:
+            result = self.invoke({"input": message})
+            return result.get('output', str(result))
+        except Exception as e:
+            return f"❌ Error: {str(e)}"
     
     def _get_help(self) -> str:
         """Return help message"""

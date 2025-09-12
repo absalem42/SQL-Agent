@@ -35,6 +35,9 @@ if google_api_key:
 else:
     print("⚠️  WARNING: GOOGLE_API_KEY not found in environment. Analytics agent may not work properly.")
 
+# Import memory systems
+from memory.base_memory import AnalyticsReportMemory, RouterGlobalState
+
 # -------- Database Utilities --------
 def execute_sql(query: str, params: tuple = ()) -> List[Dict]:
     """Execute SQL query using the shared database connection"""
@@ -66,7 +69,7 @@ def text_to_sql(question: str, context: Optional[str] = None) -> str:
     Convert a natural language question to SQL, execute it, and return results.
     """
     tables = get_all_tables()
-    schema_info = "\n".join([get_table_schema(t) for t in tables[:10]])
+    schema_info = "\n".join([get_table_schema(t) for t in tables])
     prompt = f"""
     Given the following database schema:
     {schema_info}
@@ -135,25 +138,58 @@ def analytics_reporting(data: str, operation: str, params: Optional[Dict] = {}) 
             y_col = params.get('y')
             viz_spec = {
                 "type": viz_type,
-                "data": df.to_dict('records'),
-                "encoding": {
-                    "x": {"field": x_col, "type": "nominal"},
-                    "y": {"field": y_col, "type": "quantitative"}
-                }
+                "x": x_col,
+                "y": y_col,
+                "data": data
             }
-            return f"Visualization spec:\n{json.dumps(viz_spec, indent=2)}"
-        elif operation == "summarize":
-            summary = {
-                "rows": len(df),
-                "columns": list(df.columns),
-                "numeric_summary": df.describe().to_dict(),
-                "null_counts": df.isnull().sum().to_dict()
-            }
-            return f"Data summary:\n{json.dumps(summary, indent=2)}"
+            return f"Visualization spec: {json.dumps(viz_spec, indent=2)}"
         else:
-            return f"Unknown operation: {operation}"
+            return df.head(10).to_string()
     except Exception as e:
-        return f"Error in analytics operation: {str(e)}"
+        return f"Analysis error: {str(e)}"
+
+@tool
+def save_report_tool(report_name: str, sql_query: str, parameters: str = "{}") -> str:
+    """
+    Save a report query for future reuse
+    
+    Args:
+        report_name: Name of the report to save
+        sql_query: SQL query to save  
+        parameters: JSON string of parameters (optional)
+    
+    Returns:
+        str: Success/failure message
+    """
+    try:
+        report_memory = AnalyticsReportMemory()
+        params = json.loads(parameters) if parameters else {}
+        result = report_memory.save_report(report_name, sql_query, params)
+        return result
+    except Exception as e:
+        return f"Error saving report: {str(e)}"
+
+@tool  
+def load_saved_report(report_name: str) -> str:
+    """
+    Load a previously saved report
+    
+    Args:
+        report_name: Name of the report to load
+    
+    Returns:
+        str: Report information or error message
+    """
+    try:
+        report_memory = AnalyticsReportMemory()
+        report = report_memory.get_saved_report(report_name)
+        if report:
+            report_memory.update_report_run(report_name)
+            return f"Report '{report_name}':\nSQL: {report['sql_query']}\nParameters: {report['parameters']}\nRun count: {report['run_count'] + 1}"
+        else:
+            return f"Report '{report_name}' not found"
+    except Exception as e:
+        return f"Error loading report: {str(e)}"
 
 # -------- Agent System Prompt --------
 ANALYTICS_AGENT_SYSTEM = """You are the Analytics & Reporting Agent for Helios Dynamics.
@@ -182,11 +218,30 @@ Begin!
 Question: {input}
 Thought:{agent_scratchpad}"""
 
+# -------- Analytics Agent Wrapper --------
+class AnalyticsAgentWrapper:
+    """Wrapper class for Analytics Agent to provide consistent interface"""
+    
+    def __init__(self):
+        self.executor = create_analytics_agent()
+    
+    def chat(self, message: str) -> str:
+        """Chat interface that mimics other agents"""
+        try:
+            result = self.executor.invoke({"input": message})
+            return result.get('output', str(result))
+        except Exception as e:
+            return f"❌ Error: {str(e)}"
+    
+    def invoke(self, request_data: dict) -> dict:
+        """Direct invoke method for compatibility"""
+        return self.executor.invoke(request_data)
+
 # -------- Build the Analytics Agent --------
 def create_analytics_agent():
     """Create and configure the Analytics Agent"""
     llm = get_llm()  # Use shared LLM configuration
-    tools = [text_to_sql, rag_definition, analytics_reporting]
+    tools = [text_to_sql, rag_definition, analytics_reporting, save_report_tool, load_saved_report]
     memory = ConversationBufferMemory()
     prompt = PromptTemplate.from_template(ANALYTICS_AGENT_SYSTEM)
     agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
@@ -199,6 +254,10 @@ def create_analytics_agent():
         memory=memory
     )
     return executor
+
+def create_analytics_agent_with_chat():
+    """Create Analytics Agent with chat interface"""
+    return AnalyticsAgentWrapper()
 
 # Export the executor
 executor = create_analytics_agent()
