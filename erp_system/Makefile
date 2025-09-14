@@ -65,24 +65,6 @@ logs:
 shell:
 	docker compose exec backend /bin/bash
 
-# Run system tests
-test:
-	@echo "Running system tests..."
-	@if [ -f .venv/bin/python ]; then \
-		.venv/bin/python quick_start.py; \
-	else \
-		echo "Please run 'make setup-local' first for testing"; \
-	fi
-
-# Run interactive demo  
-demo:
-	@echo "Starting interactive demo..."
-	@if [ -f .venv/bin/python ]; then \
-		.venv/bin/python -c "exec(open('quick_start.py').read())"; \
-	else \
-		echo "Please run 'make setup-local' first for demo"; \
-	fi
-
 # Check system health
 health:
 	@echo "Checking system health..."
@@ -100,7 +82,7 @@ clean:
 # Deep clean including virtual environment
 deep-clean: clean
 	rm -rf .venv
-	docker system prune -af
+	docker stop $(docker ps -q) 2>/dev/null || true; docker rm -f $(docker ps -a -q) 2>/dev/null || true; docker rmi -f $(docker images -q) 2>/dev/null || true; docker volume rm -f $(docker volume ls -q) 2>/dev/null || true; docker network rm $(docker network ls -q --filter type=custom) 2>/dev/null || true; docker system prune -a -f --volumes; docker builder prune -a -f
 	@echo "Deep cleanup completed"
 
 # Show container status
@@ -121,8 +103,6 @@ help:
 	@echo "  make setup-local - Install dependencies locally (first time)"
 	@echo "  make start-local - Start locally (no Docker)"
 	@echo "  make stop-local  - Stop local processes"
-	@echo "  make test        - Run system tests (requires setup-local)"
-	@echo "  make demo        - Run interactive demo (requires setup-local)"
 	@echo ""
 	@echo "=== MAINTENANCE ==="
 	@echo "  make build       - Build Docker containers only"
