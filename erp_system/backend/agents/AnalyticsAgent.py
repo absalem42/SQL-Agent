@@ -11,42 +11,29 @@ import json
 import pandas as pd
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from pathlib import Path
 
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import GoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+import os
+from langchain_community.document_loaders import UnstructuredMarkdownLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+from langchain.chains import RetrievalQA
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from db import get_db
-from config.llm import get_llm
+# Set Gemini API key from environment variable
+os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY", "")
+mdPath = "metrics.md"
+presist_dir = "metrics_docs"
 
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
 
-# Set Gemini API key with proper error handling
-google_api_key = os.getenv("GOOGLE_API_KEY")
-if google_api_key:
-    os.environ["GOOGLE_API_KEY"] = google_api_key
-else:
-    print("⚠️  WARNING: GOOGLE_API_KEY not found in environment. Analytics agent may not work properly.")
-
-# Import memory systems
-from memory.base_memory import AnalyticsReportMemory, RouterGlobalState
 
 # -------- Database Utilities --------
 def execute_sql(query: str, params: tuple = ()) -> List[Dict]:
-    """Execute SQL query using the shared database connection"""
     import sqlite3
-    
-    # Use the correct database path
-    db_path = Path(__file__).parent.parent.parent / "databases" / "erp.db"
-    
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(os.getenv("DB_PATH", ""))
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(query, params)
@@ -66,10 +53,10 @@ def get_all_tables() -> List[str]:
 @tool
 def text_to_sql(question: str, context: Optional[str] = None) -> str:
     """
-    Convert a natural language question to SQL, execute it, and return results.
+    Convert a natural language question to SQL, execute it, and return results. Make sure  it is only a read only query and does not modify the database.
     """
     tables = get_all_tables()
-    schema_info = "\n".join([get_table_schema(t) for t in tables])
+    schema_info = "\n".join([get_table_schema(t) for t in tables])  # Limit to first 3 tables for brevity
     prompt = f"""
     Given the following database schema:
     {schema_info}
@@ -79,14 +66,9 @@ def text_to_sql(question: str, context: Optional[str] = None) -> str:
     Return only the SQL query without any explanation.
     SQL Query:
     """
-    llm = get_llm()  # Use shared LLM configuration
-    response = llm.invoke(prompt)
-    # Handle both string and AIMessage responses
-    if hasattr(response, 'content'):
-        sql_query = response.content.strip()
-    else:
-        sql_query = str(response).strip()
-    sql_query = sql_query.replace("```sql", "").replace("```", "").strip()
+
+    llm = GoogleGenerativeAI(model="gemini-1.5-flash")
+    sql_query = llm.invoke(prompt).strip().replace("```sql", "").replace("```", "").strip()
     try:
         results = execute_sql(sql_query)
         if results:
@@ -98,106 +80,140 @@ def text_to_sql(question: str, context: Optional[str] = None) -> str:
         return f"Error executing SQL query: {str(e)}\nGenerated SQL: {sql_query}"
 
 @tool
-def rag_definition(term: str, module: Optional[str] = None) -> str:
+def rag_definition(query: str) -> str:
     """
     Search for business definitions, metrics, and contextual information.
     """
-    # Simulate vector search using Gemini embeddings
-    embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-    # For demo, just search glossary table
-    query = "SELECT term, definition, module FROM glossary WHERE term LIKE ?"
-    results = execute_sql(query, (f"%{term}%",))
-    if module:
-        results = [r for r in results if r['module'] == module]
-    if not results:
-        return f"No definitions found for '{term}'"
-    output = f"Found {len(results)} relevant definitions:\n\n"
-    for i, item in enumerate(results, 1):
-        output += f"{i}. Term: {item['term']}\n   Definition: {item['definition']}\n   Module: {item['module']}\n\n"
-    return output
+    # Fail-safe: if embeddings or API key aren't available, return a graceful message
+    try:
+        # Ensure persist directory exists to avoid runtime errors
+        os.makedirs(presist_dir, exist_ok=True)
+        # Use current Google embeddings model name
+        embedding_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+        vectordb = Chroma(persist_directory=presist_dir, embedding_function=embedding_model)
+        retriever = vectordb.as_retriever()
+        llm = GoogleGenerativeAI(model="gemini-1.5-flash")
+        qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever, return_source_documents=True)
+        result = qa_chain.invoke({
+            "query": (
+                "You are the first tool in a business analytics agent. "
+                "You will receive a question from the user, and you have access to a knowledge base "
+                "of business definitions and metrics. Based on the question, search the knowledge base "
+                "and return any relevant definitions or metrics that might help the next tool. "
+                "Return only relevant information, and nothing else. "
+                f"Here is the question: {query}"
+            )
+        })
+        answer = result.get("result", "")
+        return answer if answer else "No relevant information found."
+    except Exception as e:
+        return f"RAG unavailable ({e}). Proceed with SQL analysis without RAG context."
 
 @tool
-def analytics_reporting(data: str, operation: str, params: Optional[Dict] = {}) -> str:
+def analytics_reporting(input_data):
     """
-    Perform data analysis, aggregation, or visualization.
+    Simple analytics function for data analysis and visualization.
+    Input: dict with 'data' and optional 'operation' and 'params'
     """
     try:
-        df = pd.read_json(data)
-        if operation == "aggregate":
-            group_by = params.get('group_by', [])
-            agg_func = params.get('agg_func', 'sum')
-            value_col = params.get('value_col')
-            if group_by and value_col:
-                result = df.groupby(group_by)[value_col].agg(agg_func)
-                return f"Aggregation result:\n{result.to_string()}"
-            else:
-                return df.describe().to_string()
-        elif operation == "visualize":
-            viz_type = params.get('type', 'bar')
-            x_col = params.get('x')
-            y_col = params.get('y')
+        # Parse input if it's a string
+        if isinstance(input_data, str):
+            # Remove markdown code blocks if present
+            input_data = input_data.strip()
+            if input_data.startswith('```json'):
+                input_data = input_data[7:]  # Remove ```json
+            if input_data.endswith('```'):
+                input_data = input_data[:-3]  # Remove ```
+            input_data = input_data.strip()
+            input_data = json.loads(input_data)
+        
+        # Get data and create DataFrame
+        data = input_data.get("data", [])
+        if not data:
+            return "No data provided"
+        
+        df = pd.DataFrame(data)
+        if df.empty:
+            return "Empty dataset"
+        
+        # Get operation type
+        operation = input_data.get("operation", "summarize")
+        params = input_data.get("params", {})
+        
+        # Handle operations
+        if operation == "visualize":
+            viz_type = params.get("type", "bar")
+            x_col = params.get("x", df.columns[0])
+            y_col = params.get("y", df.columns[1] if len(df.columns) > 1 else df.columns[0])
+            
+            # Support multiple chart types
+            chart_types = ["bar", "line", "scatter", "pie", "area", "histogram", "box"]
+            if viz_type not in chart_types:
+                viz_type = "bar"
+            
             viz_spec = {
                 "type": viz_type,
+                "data": df.to_dict('records'),
                 "x": x_col,
                 "y": y_col,
-                "data": data
+                "title": params.get("title", f"{viz_type} chart")
             }
-            return f"Visualization spec: {json.dumps(viz_spec, indent=2)}"
-        else:
-            return df.head(10).to_string()
+            
+            # Add specific configs for different chart types
+            if viz_type == "pie":
+                viz_spec["label"] = x_col
+                viz_spec["value"] = y_col
+            elif viz_type == "histogram":
+                viz_spec["column"] = x_col
+            elif viz_type == "box":
+                viz_spec["column"] = y_col
+                viz_spec["category"] = x_col
+            
+            return json.dumps(viz_spec, indent=2)
+        
+        elif operation == "aggregate":
+            group_col = params.get("group_by")
+            value_col = params.get("value_col")
+            agg_func = params.get("agg_func", "sum")
+            
+            if group_col and value_col:
+                result = df.groupby(group_col)[value_col].agg(agg_func)
+                return result.to_string()
+            else:
+                return df.describe().to_string()
+        
+        else:  # summarize
+            summary = {
+                "rows": len(df),
+                "columns": list(df.columns),
+                "sample": df.head(3).to_dict('records')
+            }
+            return json.dumps(summary, indent=2)
+            
     except Exception as e:
-        return f"Analysis error: {str(e)}"
-
-@tool
-def save_report_tool(report_name: str, sql_query: str, parameters: str = "{}") -> str:
-    """
-    Save a report query for future reuse
-    
-    Args:
-        report_name: Name of the report to save
-        sql_query: SQL query to save  
-        parameters: JSON string of parameters (optional)
-    
-    Returns:
-        str: Success/failure message
-    """
-    try:
-        report_memory = AnalyticsReportMemory()
-        params = json.loads(parameters) if parameters else {}
-        result = report_memory.save_report(report_name, sql_query, params)
-        return result
-    except Exception as e:
-        return f"Error saving report: {str(e)}"
-
-@tool  
-def load_saved_report(report_name: str) -> str:
-    """
-    Load a previously saved report
-    
-    Args:
-        report_name: Name of the report to load
-    
-    Returns:
-        str: Report information or error message
-    """
-    try:
-        report_memory = AnalyticsReportMemory()
-        report = report_memory.get_saved_report(report_name)
-        if report:
-            report_memory.update_report_run(report_name)
-            return f"Report '{report_name}':\nSQL: {report['sql_query']}\nParameters: {report['parameters']}\nRun count: {report['run_count'] + 1}"
-        else:
-            return f"Report '{report_name}' not found"
-    except Exception as e:
-        return f"Error loading report: {str(e)}"
+        return f"Error: {str(e)}"
 
 # -------- Agent System Prompt --------
 ANALYTICS_AGENT_SYSTEM = """You are the Analytics & Reporting Agent for Helios Dynamics.
 
 Your responsibilities:
-- Answer executive questions using SQL and contextual explanations
-- Retrieve business definitions and metrics
-- Perform analytics and generate visualizations
+- Retrieve business definitions and metrics for anything you terms you do not understand or unsure of using the rag_definition tool. It does not have access to the database, so use it for definitions and context only.
+- Answer executive questions using SQL and contextual explanations. You can use the text_to_sql tool to convert natural language questions into SQL queries and execute them against the database. Make sure to input a normal natural language question to the text_to_sql tool, and not SQL directly. Ensure that the SQL queries are read-only and do not modify the database.
+- Perform analytics and generate visualizations. You can use the analytics_reporting tool, which take json as input based the retrieved data from sql to perform data analysis, aggregation, or visualization. When using analytics_reporting tool, format your input like this:
+
+Action Input: {{
+  "data": [{{"column1": "value1", "column2": 123}}],
+  "operation": "visualize",
+  "params": {{"type": "bar", "x": "column1", "y": "column2"}}
+}}
+
+
+DO NOT use strings for the data field - use actual JSON objects.
+
+After you finish excuting return in the final answer the following:
+-data retreived in table format, if any
+-json output of any visualizations you created, if any
+-Your insights and analysis of the data
 
 Available tools: {tools}
 Tool names: {tool_names}
@@ -207,44 +223,25 @@ Use the following format:
 Question: the input question you must answer
 Thought: you should always think about what to do
 Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
+Action Input: the input to the action, for text_to_sql provide the question and optional context, for rag_definition provide the term and optional module, for analytics_reporting provide a dict with data and operation
 Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can repeat N times)
 Thought: I now know the final answer
-Final Answer: the final answer to the original input question
+Final Answer: the final answer to the original input question, always include your insights on the data and any visualizations if applicable.
 
 Begin!
 
 Question: {input}
 Thought:{agent_scratchpad}"""
 
-# -------- Analytics Agent Wrapper --------
-class AnalyticsAgentWrapper:
-    """Wrapper class for Analytics Agent to provide consistent interface"""
-    
-    def __init__(self):
-        self.executor = create_analytics_agent()
-    
-    def chat(self, message: str) -> str:
-        """Chat interface that mimics other agents"""
-        try:
-            result = self.executor.invoke({"input": message})
-            return result.get('output', str(result))
-        except Exception as e:
-            return f"❌ Error: {str(e)}"
-    
-    def invoke(self, request_data: dict) -> dict:
-        """Direct invoke method for compatibility"""
-        return self.executor.invoke(request_data)
-
 # -------- Build the Analytics Agent --------
 def create_analytics_agent():
-    """Create and configure the Analytics Agent"""
-    llm = get_llm()  # Use shared LLM configuration
-    tools = [text_to_sql, rag_definition, analytics_reporting, save_report_tool, load_saved_report]
+    llm = GoogleGenerativeAI(model="gemini-1.5-flash")
+    tools = [text_to_sql, rag_definition, analytics_reporting]
     memory = ConversationBufferMemory()
     prompt = PromptTemplate.from_template(ANALYTICS_AGENT_SYSTEM)
     agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
+
     executor = AgentExecutor(
         agent=agent,
         tools=tools,
@@ -253,11 +250,8 @@ def create_analytics_agent():
         max_iterations=5,
         memory=memory
     )
-    return executor
 
-def create_analytics_agent_with_chat():
-    """Create Analytics Agent with chat interface"""
-    return AnalyticsAgentWrapper()
+    return executor
 
 # Export the executor
 executor = create_analytics_agent()
@@ -265,6 +259,7 @@ executor = create_analytics_agent()
 if __name__ == "__main__":
     print("📊 Helios Dynamics - Analytics Agent Ready!")
     print("Ask me about revenue, customers, definitions, or analytics.")
+   
     try:
         while True:
             user_input = input("Analytics Agent > ")

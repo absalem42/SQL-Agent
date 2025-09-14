@@ -32,8 +32,15 @@ from langchain.tools import tool
 from langchain.memory import ConversationBufferWindowMemory
 from config.llm import get_llm
 from mcp.tool_registry import ToolRegistry
-from agents.sales_agent_simple import SimpleSalesAgent
-from agents.AnalyticsAgent import create_analytics_agent
+from agents.SalesAgent import create_sales_agent_with_chat
+# Import Analytics Agent (with error handling for dependencies)
+try:
+    from agents.AnalyticsAgent import create_analytics_agent
+    ANALYTICS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Analytics Agent import failed: {e}")
+    create_analytics_agent = None
+    ANALYTICS_AVAILABLE = False
 from memory.base_memory import RouterGlobalState
 
 # Initialize memory and global state
@@ -42,8 +49,20 @@ global_state = RouterGlobalState()
 # Initialize the tool registry and agents
 # The tool registry manages all available tools across agents
 tool_registry = ToolRegistry()
-sales_agent = SimpleSalesAgent()
-analytics_agent = create_analytics_agent()
+sales_agent = create_sales_agent_with_chat()
+
+# Initialize Analytics Agent if available
+if ANALYTICS_AVAILABLE and create_analytics_agent:
+    try:
+        analytics_agent = create_analytics_agent()
+        print("✅ Analytics Agent initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Analytics Agent initialization failed: {e}")
+        analytics_agent = None
+        ANALYTICS_AVAILABLE = False
+else:
+    analytics_agent = None
+    print("⚠️ Analytics Agent not available")
 
 @tool
 def execute_with_sales_agent(user_request: str) -> str:
@@ -131,6 +150,17 @@ def execute_with_analytics_agent(user_request: str) -> str:
         - "Create a chart of monthly orders"
     """
     print(f"📊 Routing to Analytics Agent: {user_request}")
+    
+    if not ANALYTICS_AVAILABLE or analytics_agent is None:
+        print("⚠️ Analytics Agent not available, routing to Sales Agent for analytics queries")
+        try:
+            # Use sales agent as fallback for analytics queries
+            result = sales_agent.invoke({"input": f"Analyze and provide insights on: {user_request}"})
+            response = result['output']
+            return f"📊 Analytics (via Sales Agent): {response}"
+        except Exception as e:
+            return f"Analytics Agent Error: Analytics Agent is not available and fallback failed: {str(e)}"
+    
     try:
         # Invoke the analytics agent with the user request
         result = analytics_agent.invoke({"input": user_request})
@@ -142,7 +172,11 @@ def execute_with_analytics_agent(user_request: str) -> str:
 
 # Register tools with the registry
 tool_registry.register_tool(execute_with_sales_agent)
-tool_registry.register_tool(execute_with_analytics_agent)
+if ANALYTICS_AVAILABLE:
+    tool_registry.register_tool(execute_with_analytics_agent)
+    print("✅ Analytics Agent tool registered")
+else:
+    print("⚠️ Analytics Agent tool not registered - not available")
 tool_registry.register_tool(get_system_info)
 
 # Create the router agent

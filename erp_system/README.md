@@ -1,106 +1,122 @@
 # ERP System - Multi-Agent Chat Assistant
 
-A sophisticated ERP system powered by multiple AI agents with memory capabilities, built with LangChain, Streamlit, and Docker.
+A production-style ERP assistant powered by multiple AI agents with memory, built on LangChain, FastAPI, and Streamlit. This README is aligned to the submission requirements.
 
-## 🚀 Features
+## Submission Checklist (What’s included)
+- Python script files for agents and tools (see backend/agents and backend/tools)
+- README explaining:
+   - System architecture and agent responsibilities
+   - Tool integration and MCP compliance
+   - Memory management and database usage
+- Sample SQLite database `databases/erp_sample.db` with test tables and seed data
+- Short video demo (record separately; suggested flow below)
+- Modular, well-commented code organized under `backend/`, `frontend/`, `databases/`
+- requirements.txt and instructions to run locally (Makefile), Docker, and Streamlit/FastAPI UI
+- Deployment files (Dockerfile, docker-compose.yml) with a quick deploy guide
 
-- **3 Specialized AI Agents**: Router, Sales, and Analytics agents
-- **Memory System**: Persistent conversation and entity memory
-- **Chat Interface**: Modern Streamlit-based UI with live updates
-- **Database Integration**: SQLite with comprehensive business data
-- **Docker Deployment**: Containerized architecture
-- **Live Development**: Hot-reload support for development
+## 🚀 System Architecture
 
-## 🏗️ Architecture
+### Agents (backend/agents)
+- Router Agent (`simple_router_agent.py`)
+   - Classifies user intent and routes to Sales or Analytics
+   - Logs tool usage and approvals
+   - Uses LangChain ReAct
+- Sales Agent (`SalesAgent.py`)
+   - Customer/lead/order queries and CRM workflows
+   - Tools: SQL read/write, RAG search (docs), lead scoring
+   - Uses SQLite via shared DB utilities
+- Analytics Agent (`AnalyticsAgent.py`)
+   - NL → SQL analytics, reporting, and visualization specs
+   - Optional RAG for business definitions with safe fallback
 
-### Agents
-- **Router Agent**: Smart query routing and system management
-- **Sales Agent**: Customer management, orders, and CRM operations
-- **Analytics Agent**: Data analysis, reporting, and SQL queries
+### Tools & MCP
+- Tools live in `backend/tools` (e.g., `sales_tools.py`) and are exposed to agents as LangChain Tools (MCP-style contract: name, description, input schema, output).
+- Each tool is pure and logs invocations (inputs/outputs) through memory.
 
-### Memory System
-- **RouterGlobalState**: Conversation tracking and routing history
-- **SalesEntityMemory**: Customer and sales data persistence
-- **AnalyticsReportMemory**: Saved reports and query history
+### Memory Management (backend/memory)
+- `base_memory.py` implements:
+   - `RouterGlobalState`: conversations, messages, approvals, tool_calls (SQLite-backed)
+   - `SalesEntityMemory`: customer-specific KV store
+   - `AnalyticsReportMemory`: saved reports with statistics (run count, last_run)
 
-## 🔧 Quick Start
+### Database Usage
+- SQLite database mounted at `databases/` (configurable via `DB_PATH` env)
+- Agents access the same DB for consistent results
+- Example tables used by agents: customers, products, orders, order_items, invoices, invoice_lines, payments, leads
 
-### Prerequisites
-- Docker and Docker Compose
-- Google Gemini API key
+## 🗃️ Sample SQLite Database
+We ship a sample DB: `databases/erp_sample.db`
+- If a full `databases/erp.db` exists, we copy it to `erp_sample.db` (richer data)
+- Else we generate a minimal but representative dataset
 
-### Setup
-1. Clone the repository
-2. Copy `.env.example` to `.env` and add your Google API key:
-   ```
-   GOOGLE_API_KEY=your_api_key_here
-   ```
-3. Start the system:
-   ```bash
-   docker compose up -d
-   ```
-4. Access the chat interface at `http://localhost:8501`
-
-## 💬 Usage Examples
-
-### Sales Agent
-```
-"show customers" - List recent customers with order history
-"Show recent orders" - Display order information
-"customer summary" - Customer statistics
-```
-
-### Analytics Agent
-```
-"What's our total revenue?" - Financial reporting
-"Show revenue by month" - Time-based analysis
-"How many orders do we have?" - Count queries
+Create/regenerate it with:
+```bash
+python create_sample_db.py
 ```
 
-### Router Agent
+Set DB path via env (local) or compose (Docker):
+```bash
+export DB_PATH=databases/erp_sample.db
 ```
-"What's our system status?" - System information
-"Show me our top customers" - Smart routing to appropriate agent
+
+## 🧩 How to Run
+
+### One-command (Docker)
+```bash
+make docker
+```
+UI: http://localhost:8501  •  API: http://localhost:8000/docs
+
+### Local (no Docker)
+```bash
+make setup-local   # venv + deps + create_sample_db
+make start-local   # start FastAPI + Streamlit
 ```
 
-## 📊 Database Schema
+### Health & Logs
+```bash
+make health
+make logs
+```
 
-The system includes comprehensive business data:
-- **Customers**: 113+ customers with contact information
-- **Orders**: 260+ orders with proper relationships
-- **Revenue Data**: Multi-year financial records
-- **Order Status**: Complete order lifecycle tracking
+## 💬 Demo Flow (<= 10 minutes)
+1) Open UI and show agents list (/agents)
+2) Sales examples: “how many customers”, “show leads”, “show orders”
+3) Analytics: “revenue by month”, “top 5 products by revenue”, “AOV by month 2024”
+4) Router: “count customers”, “leads with high score”, “revenue analysis 2024”
+5) Show memory tables (conversations/messages) growing as you chat
 
-## 🛠️ Development
+## 🧠 Design Notes
+- Agents use LangChain ReAct with clearly defined tools
+- Memory is persisted in SQLite and auto-migrates missing columns
+- Analytics RAG gracefully degrades if embeddings are unavailable
 
-### Project Structure
+## 📦 Project Structure
 ```
 erp_system/
-├── backend/           # Core agent logic and APIs
-│   ├── agents/        # AI agent implementations
-│   ├── memory/        # Memory systems
-│   ├── tools/         # Business logic tools
-│   └── config/        # Configuration management
-├── frontend/          # Streamlit web interface
-├── databases/         # SQLite database files
-└── docker-compose.yml # Container orchestration
+├── backend/           # Agents, API, tools, memory
+│   ├── agents/
+│   ├── tools/
+│   ├── memory/
+│   └── api.py
+├── frontend/          # Streamlit UI
+├── databases/         # SQLite DBs (erp.db, erp_sample.db)
+├── create_sample_db.py
+├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+└── Makefile
 ```
 
-### Live Development
-The system includes volume mounting for live changes - edit files locally and see changes reflected immediately without container restarts.
+## 🔐 Configuration
+- `.env` (copy from `.env.example`)
+   - `GOOGLE_API_KEY=...`
+   - `DB_PATH=databases/erp_sample.db` (optional; Docker sets `/app/databases/erp.db`)
 
-## 🚨 System Status
-- ✅ All agents operational
-- ✅ Memory systems active
-- ✅ Database connections stable
-- ✅ Chat interface functional
-
-## 📈 Performance
-- **Total Revenue**: $310,898.07
-- **Orders Processed**: 260+
-- **Customers Served**: 113+
-- **Memory Retention**: Full conversation history
+## � Deployment
+- Docker (recommended): `make docker`
+- Production tip: front a reverse proxy (nginx) and persist volumes for `databases/` and `logs/`
 
 ---
 
-*ERP Chat Assistant - Intelligent Business Management Made Simple*
+ERP Chat Assistant – Intelligent Business Management Made Simple

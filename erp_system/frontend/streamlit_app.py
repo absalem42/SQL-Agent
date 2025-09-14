@@ -184,7 +184,6 @@ if health_data:
 
     with col3:
         st.success(f"✅ API Connected")
-        st.caption(f"DB: {health_data.get('customer_count', 0)} customers")
 
 # Footer info
 st.markdown("---")

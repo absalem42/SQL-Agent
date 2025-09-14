@@ -32,8 +32,7 @@ class SimpleSalesAgent:
                 FROM customers c 
                 LEFT JOIN orders o ON c.id = o.customer_id 
                 GROUP BY c.id 
-                ORDER BY c.created_at DESC 
-                LIMIT 10
+                ORDER BY c.created_at DESC
             """)
             
             if not results or "error" in str(results).lower():
@@ -41,7 +40,6 @@ class SimpleSalesAgent:
                 results = self.sales_tools.sales_sql_read("""
                     SELECT * FROM customers 
                     ORDER BY created_at DESC 
-                    LIMIT 10
                 """)
                 
                 if results and "error" not in str(results).lower():
@@ -111,7 +109,6 @@ class SimpleSalesAgent:
                 SELECT customer_name, contact_email, status, score, created_at 
                 FROM leads
                 ORDER BY created_at DESC
-                LIMIT 10
             """)
             
             if not leads or len(leads) == 0:
@@ -138,7 +135,6 @@ class SimpleSalesAgent:
                 FROM orders o
                 JOIN customers c ON o.customer_id = c.id
                 ORDER BY o.created_at DESC
-                LIMIT 10
             """)
             
             if not orders or len(orders) == 0:
@@ -170,7 +166,6 @@ class SimpleSalesAgent:
                 FROM customers c 
                 WHERE c.name LIKE '%{search_term}%' OR c.email LIKE '%{search_term}%'
                 ORDER BY c.name
-                LIMIT 5
             """)
             
             if not results or len(results) == 0:
@@ -191,14 +186,19 @@ class SimpleSalesAgent:
         user_input = request_data.get('input', '').lower()
         
         try:
-            # Simple keyword-based routing
+            # Improved keyword-based routing with more patterns
             if 'search' in user_input or 'find' in user_input:
                 response = self._search_customers(user_input)
             elif 'lead' in user_input:
                 response = self._get_leads()
             elif 'order' in user_input:
                 response = self._get_orders()
-            elif 'summary' in user_input:
+            elif ('summary' in user_input or 
+                  'how many' in user_input or 
+                  'count' in user_input or 
+                  'total' in user_input or
+                  'statistics' in user_input or
+                  'stats' in user_input):
                 response = self._get_customer_summary()
             elif 'customer' in user_input:
                 response = self._get_customers()

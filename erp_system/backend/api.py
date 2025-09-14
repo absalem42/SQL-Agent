@@ -33,13 +33,31 @@ except Exception as e:
         ROUTER_AVAILABLE = False
 
 try:
-    from agents.sales_agent_simple import SimpleSalesAgent
-    sales_agent = SimpleSalesAgent()
+    from agents.SalesAgent import create_sales_agent_with_chat
+    sales_agent = create_sales_agent_with_chat()
     SALES_AGENT_AVAILABLE = True
+    print("✅ New Sales agent loaded successfully")
 except ImportError as e:
-    print(f"Warning: Sales agent not available: {e}")
-    sales_agent = None
-    SALES_AGENT_AVAILABLE = False
+    print(f"Warning: New Sales agent not available, trying fallback: {e}")
+    try:
+        from agents.sales_agent_simple import SimpleSalesAgent
+        sales_agent = SimpleSalesAgent()
+        SALES_AGENT_AVAILABLE = True
+        print("✅ Fallback Sales agent loaded successfully")
+    except ImportError as e2:
+        print(f"Warning: Sales agent not available: {e2}")
+        sales_agent = None
+        SALES_AGENT_AVAILABLE = False
+
+try:
+    from agents.AnalyticsAgent import create_analytics_agent
+    analytics_agent = create_analytics_agent()
+    ANALYTICS_AGENT_AVAILABLE = True
+    print("✅ Analytics agent loaded successfully")
+except Exception as e:
+    print(f"Warning: Analytics agent not available: {e}")
+    analytics_agent = None
+    ANALYTICS_AGENT_AVAILABLE = False
 
 from db import get_db
 from tools.sales_tools import SalesTools
@@ -103,7 +121,8 @@ async def api_root():
         "status": "active",
         "agents": {
             "router": "available" if ROUTER_AVAILABLE else "unavailable",
-            "sales": "available" if SALES_AGENT_AVAILABLE else "unavailable"
+            "sales": "available" if SALES_AGENT_AVAILABLE else "unavailable",
+            "analytics": "available" if ANALYTICS_AGENT_AVAILABLE else "unavailable"
         },
         "docs": "/docs"
     }
@@ -123,7 +142,8 @@ async def health_check():
             "customer_count": customer_count,
             "agents": {
                 "router": "available" if ROUTER_AVAILABLE else "unavailable",
-                "sales": "available" if SALES_AGENT_AVAILABLE else "unavailable"
+                "sales": "available" if SALES_AGENT_AVAILABLE else "unavailable",
+                "analytics": "available" if ANALYTICS_AGENT_AVAILABLE else "unavailable"
             },
             "frontend": "available" if frontend_path.exists() else "unavailable"
         }
@@ -147,16 +167,20 @@ async def chat_with_agent(request: ChatRequest):
             agent_used = "sales"
             
         elif request.agent == "analytics":
-            response = "Analytics Agent is coming soon! For now, you can ask sales-related questions."
-            agent_used = "analytics"
-            
-        elif request.agent == "finance":
-            response = "Finance Agent is coming soon! For now, you can ask sales-related questions."
-            agent_used = "finance"
-            
-        elif request.agent == "inventory":
-            response = "Inventory Agent is coming soon! For now, you can ask sales-related questions."
-            agent_used = "inventory"
+            if ANALYTICS_AGENT_AVAILABLE:
+                print("Using Analytics Agent")
+                result = analytics_agent.invoke({"input": request.message})
+                response = result.get('output', str(result))
+                agent_used = "analytics"
+            else:
+                print("Analytics Agent not available, falling back to Sales Agent")
+                if SALES_AGENT_AVAILABLE:
+                    result = sales_agent.invoke({"input": request.message})
+                    response = result['output']
+                    agent_used = "sales"
+                else:
+                    response = "Analytics Agent is currently unavailable due to missing dependencies. Please check system configuration."
+                    agent_used = "analytics"
             
         elif ROUTER_AVAILABLE:
             print("Using Router Agent")
@@ -218,6 +242,14 @@ async def list_agents():
             "description": "Sales and CRM management agent",
             "status": "active",
             "capabilities": ["customer_management", "lead_scoring", "order_tracking"]
+        })
+    
+    if ANALYTICS_AGENT_AVAILABLE:
+        agents.append({
+            "name": "analytics",
+            "description": "Analytics and reporting agent with SQL query generation",
+            "status": "active",
+            "capabilities": ["data_analysis", "sql_queries", "visualization", "reporting"]
         })
     
     if ROUTER_AVAILABLE:
