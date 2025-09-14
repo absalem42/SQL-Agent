@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:slim-trixie
 
 WORKDIR /app
 
@@ -12,16 +12,15 @@ COPY requirements.txt .
 
 # Install uv and use it to install requirements (using pre-compiled wheels)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    /root/.local/bin/uv pip install --system --no-cache-dir --only-binary=all -r requirements.txt && \
-    apt-get remove -y curl && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+    /root/.local/bin/uv pip install --system --no-cache-dir --only-binary=all -r requirements.txt
 
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p databases logs
+# Create necessary directories and fix permissions
+RUN mkdir -p databases logs && \
+    chmod +x frontend/start_streamlit.sh && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
 ENV PYTHONPATH=/app/backend

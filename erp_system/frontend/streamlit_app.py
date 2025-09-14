@@ -1,19 +1,24 @@
 import streamlit as st
 import sys
 from pathlib import Path
+import requests
+import os
 
-# Add backend to path - Docker container path
-sys.path.insert(0, "/app/backend")
+# API Configuration
+API_URL = os.getenv("API_URL", "http://backend:8000")  # Use backend service name in docker
 
+# Test API connection
 try:
-    from agents.simple_router_agent import RouterAgent
-    from agents.sales_agent_simple import SimpleSalesAgent
-    from agents.AnalyticsAgent import create_analytics_agent_with_chat
-    from memory.base_memory import RouterGlobalState, SalesEntityMemory, AnalyticsReportMemory
-    AGENTS_AVAILABLE = True
+    response = requests.get(f"{API_URL}/health", timeout=5)
+    if response.status_code == 200:
+        AGENTS_AVAILABLE = True
+        health_data = response.json()
+    else:
+        AGENTS_AVAILABLE = False
+        health_data = None
 except Exception as e:
     AGENTS_AVAILABLE = False
-    st.error(f"Import error: {e}")
+    health_data = None
 
 st.set_page_config(
     page_title="ERP Chat Assistant",
@@ -67,26 +72,41 @@ st.markdown('<h1 class="main-header">🚀 ERP Chat Assistant - Live Development!
 
 if not AGENTS_AVAILABLE:
     st.error("Agents not available. Please check the backend configuration.")
+    if health_data:
+        st.json(health_data)
     st.stop()
 
-# Initialize agents with caching
-@st.cache_resource
-def load_agents():
+# Function to call API backend
+def call_agent_api(message: str, agent_type: str) -> str:
+    """Call the backend API to get agent response"""
     try:
-        router_state = RouterGlobalState()
-        router = RouterAgent(router_state)
-        sales = SimpleSalesAgent()
-        analytics = create_analytics_agent_with_chat()
-        return router, sales, analytics
+        # Map frontend agent names to API agent names
+        agent_mapping = {
+            "Router Agent": "router",
+            "Sales Agent": "sales", 
+            "Analytics Agent": "analytics"
+        }
+        
+        agent_name = agent_mapping.get(agent_type, "router")
+        
+        response = requests.post(
+            f"{API_URL}/chat",
+            json={"message": message, "agent": agent_name},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("response", "No response received")
+        else:
+            return f"Error: API returned status {response.status_code}"
+            
+    except requests.exceptions.Timeout:
+        return "Error: Request timed out. Please try again."
+    except requests.exceptions.ConnectionError:
+        return "Error: Could not connect to backend API."
     except Exception as e:
-        st.error(f"Failed to load agents: {e}")
-        return None, None, None
-
-router_agent, sales_agent, analytics_agent = load_agents()
-
-if not all([router_agent, sales_agent, analytics_agent]):
-    st.error("Failed to initialize agents")
-    st.stop()
+        return f"Error: {str(e)}"
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -137,44 +157,35 @@ if st.button("Send") and user_input:
     # Add user message
     st.session_state.messages.append({"role": "user", "content": user_input})
     
-    # Get response from selected agent
+    # Get response from selected agent via API
     with st.spinner(f"Getting response from {agent_choice}..."):
-        try:
-            if agent_choice == "Router Agent":
-                response = router_agent.chat(user_input)
-            elif agent_choice == "Sales Agent":
-                response = sales_agent.chat(user_input)
-            elif agent_choice == "Analytics Agent":
-                response = analytics_agent.chat(user_input)
-            else:
-                response = "Unknown agent selected."
-        except Exception as e:
-            response = f"Error: {str(e)}"
+        response = call_agent_api(user_input, agent_choice)
     
     # Add assistant response
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.rerun()
 
-# Status
-col1, col2, col3 = st.columns(3)
-with col1:
-    if router_agent:
-        st.success("✅ Router Ready")
-    else:
-        st.error("❌ Router Failed")
+# Status - Show backend API health
+if health_data:
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        router_status = health_data.get("agents", {}).get("router", "unavailable")
+        if router_status == "available":
+            st.success("✅ Router Ready")
+        else:
+            st.error("❌ Router Failed")
 
-with col2:
-    if sales_agent:
-        st.success("✅ Sales Ready")
-    else:
-        st.error("❌ Sales Failed")
+    with col2:
+        sales_status = health_data.get("agents", {}).get("sales", "unavailable")
+        if sales_status == "available":
+            st.success("✅ Sales Ready")
+        else:
+            st.error("❌ Sales Failed")
 
-with col3:
-    if analytics_agent:
-        st.success("✅ Analytics Ready")
-    else:
-        st.error("❌ Analytics Failed")
+    with col3:
+        st.success(f"✅ API Connected")
+        st.caption(f"DB: {health_data.get('customer_count', 0)} customers")
 
 # Footer info
 st.markdown("---")
-st.info(f"💬 Chat with {agent_choice} • {len(st.session_state.messages)} messages")
+st.info(f"💬 Chat with {agent_choice} • {len(st.session_state.messages)} messages • API: {API_URL}")
